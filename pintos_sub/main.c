@@ -14,7 +14,7 @@ struct list *LIST[10];
 struct hash *HASH[10];
 struct bitmap *BM[10];
 
-void parse_cmd(char* cmd){
+static void parse_cmd(char* cmd){
     
     tokenSz = 0;
     char *ptr = strtok(cmd, " ");     
