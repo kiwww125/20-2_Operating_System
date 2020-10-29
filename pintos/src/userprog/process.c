@@ -53,7 +53,6 @@ start_process (void *file_name_)
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
-
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -88,6 +87,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  while(1);
   return -1;
 }
 
@@ -201,6 +201,9 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
+static char **parse_file_name(char * file_name, const int parse_size);
+static void construct_stack();
+
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
@@ -215,6 +218,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
   bool success = false;
   int i;
 
+  const int parse_size = 10;
+  char **parsed_command;
+  parsed_command = (char**)malloc(sizeof(char*) * parse_size);
+  for(int i =0; i < parse_size; i++) 
+    parsed_command[i] = (char*)malloc(sizeof(char) * 128); 
+
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -222,7 +231,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  //TODO : parse file name
+  parsed_command = parse_file_name(file_name, parse_size);
+
+  for(int i = 0; i < parse_size; i++){
+    printf("%d : %s\n", i, parsed_command[i]);
+  }
+
+  file = filesys_open (parsed_command[0]);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -299,20 +315,28 @@ load (const char *file_name, void (**eip) (void), void **esp)
             goto done;
           break;
         }
-    }
-
+    }  
   /* Set up stack. */
   if (!setup_stack (esp))
     goto done;
 
+  //TODO : construct stack
+
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
+  construct_stack();
 
   success = true;
 
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+
+  //free
+  for(int i =0 ; i< parse_size ; i++)
+    free(parsed_command[i]);
+  free(parsed_command);
+
   return success;
 }
 
@@ -462,4 +486,27 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+//file_name = echo x;
+static char** parse_file_name(char *file_name, const int parse_size){
+  char *str1, *token;
+  char *ptr1;
+  int j;
+  const char delim[] = " ";
+  char **ret;
+
+  ret = (char**)malloc(sizeof(char*) * 10);
+  for(int i =0; i < parse_size; i++) 
+    ret[i] = (char*)malloc(sizeof(char)* 128); 
+
+  for (j = 0, str1 = file_name; ; j++, str1 = NULL) {
+    token = strtok_r(str1, delim, &ptr1);
+    if (token == NULL)
+      break;
+    strlcpy(ret[j], token, strlen(token) + 1);
+    //printf("%d : %s\n", j ,token);
+  }
+
+  return ret;
 }

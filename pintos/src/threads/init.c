@@ -318,12 +318,11 @@ run_actions (char **argv)
 #endif
       {NULL, 0, NULL},
     };
-
+  
   while (*argv != NULL)
     {
       const struct action *a;
       int i;
-
       /* Find action name. */
       for (a = actions; ; a++)
         if (a->name == NULL)
