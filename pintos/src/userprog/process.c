@@ -195,14 +195,17 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
+#define PARSE_SIZE 10
+#define CMD_SIZE 128
+
 static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
-static char **parse_file_name(char * file_name, const int parse_size);
-static void construct_stack();
+static void parse_file_name(char *file_name, char parsed_command[][CMD_SIZE]);
+static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -218,12 +221,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
   bool success = false;
   int i;
 
-  const int parse_size = 10;
-  char **parsed_command;
-  parsed_command = (char**)malloc(sizeof(char*) * parse_size);
-  for(int i =0; i < parse_size; i++) 
-    parsed_command[i] = (char*)malloc(sizeof(char) * 128); 
-
+  char parsed_command[PARSE_SIZE][CMD_SIZE];
+  for(int r = 0; r < PARSE_SIZE; r++)
+  memset(parsed_command[r], 0, sizeof(char) * CMD_SIZE);
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -232,12 +232,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Open executable file. */
   //TODO : parse file name
-  parsed_command = parse_file_name(file_name, parse_size);
-
-  for(int i = 0; i < parse_size; i++){
-    printf("%d : %s\n", i, parsed_command[i]);
-  }
-
+  parse_file_name(file_name, parsed_command);
+  
   file = filesys_open (parsed_command[0]);
   if (file == NULL) 
     {
@@ -324,18 +320,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
-  construct_stack();
-
+  construct_stack(esp, parsed_command);
+  
   success = true;
 
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
-
-  //free
-  for(int i =0 ; i< parse_size ; i++)
-    free(parsed_command[i]);
-  free(parsed_command);
 
   return success;
 }
@@ -489,24 +480,61 @@ install_page (void *upage, void *kpage, bool writable)
 }
 
 //file_name = echo x;
-static char** parse_file_name(char *file_name, const int parse_size){
-  char *str1, *token;
-  char *ptr1;
-  int j;
+static void parse_file_name(char *file_name, char parsed_command[][CMD_SIZE]){
   const char delim[] = " ";
-  char **ret;
-
-  ret = (char**)malloc(sizeof(char*) * 10);
-  for(int i =0; i < parse_size; i++) 
-    ret[i] = (char*)malloc(sizeof(char)* 128); 
+  char *str1, *token, *ptr1;
+  int j;
 
   for (j = 0, str1 = file_name; ; j++, str1 = NULL) {
     token = strtok_r(str1, delim, &ptr1);
     if (token == NULL)
       break;
-    strlcpy(ret[j], token, strlen(token) + 1);
+    strlcpy(parsed_command[j], token, strlen(token) + 1);
     //printf("%d : %s\n", j ,token);
   }
+}
 
-  return ret;
+static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]){
+  int argc = 0;
+  char zeros[] = "\0\0\0\0";
+  uint32_t argv[PARSE_SIZE];
+  
+  while(parsed_command[argc][0] != 0) argc++;
+
+  //argv[argc-1][...] ~ argv[0][...]
+  for(int i = argc-1; i>=0;i--){
+    int len = strlen(parsed_command[i]) + 1;
+    *esp -= len;
+    strlcpy(*esp, parsed_command[i], len);
+    
+    if(len % 4) {
+      len = len % 4;
+      *esp -= len;
+      strlcpy(*esp,zeros, len);
+    }
+    argv[i] = (uint32_t)*esp;
+  }
+  argv[argc] = (uint32_t)0;
+
+  for(int i = argc; i >= 0; i--){
+    *esp -= 4;
+    **(uint32_t**)esp = argv[i];
+  
+    //argv
+    if(i == 0){
+      *esp -= 4;
+      **(uint32_t**)esp = *esp + 4;  
+    }
+  }
+
+  //argc
+  *esp -=4;
+  **(uint32_t**)esp = argc;
+
+  //fake return address
+  *esp -= 4;
+  **(uint32_t**)esp = 0;
+
+  //debug
+  //hex_dump(*esp, *esp, 100, 1);
 }
