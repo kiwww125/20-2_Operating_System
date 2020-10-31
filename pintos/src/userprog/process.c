@@ -28,7 +28,7 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
+  char *fn_copy, *cmd_name, *ptr1;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
@@ -38,8 +38,14 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  cmd_name = strtok_r(file_name, " ", &ptr1);
+
+  //should check if it exist, if not return -1 to tell
+  if(filesys_open(cmd_name) == -1) 
+    return -1;
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (cmd_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -87,7 +93,8 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while(1);
+  int j =0;
+  for(int i =0; i<1000000000;i++) j++;
   return -1;
 }
 
@@ -233,7 +240,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Open executable file. */
   //TODO : parse file name
   parse_file_name(file_name, parsed_command);
-  
+
   file = filesys_open (parsed_command[0]);
   if (file == NULL) 
     {
@@ -351,6 +358,7 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
   /* p_memsz must be at least as big as p_filesz. */
   if (phdr->p_memsz < phdr->p_filesz) 
     return false; 
+
 
   /* The segment must not be empty. */
   if (phdr->p_memsz == 0)
@@ -494,41 +502,44 @@ static void parse_file_name(char *file_name, char parsed_command[][CMD_SIZE]){
   }
 }
 
+
+
 static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]){
   int argc = 0;
-  char zeros[] = "\0\0\0\0";
   uint32_t argv[PARSE_SIZE];
   
   while(parsed_command[argc][0] != 0) argc++;
 
   //argv[argc-1][...] ~ argv[0][...]
+  int totlen =0;
   for(int i = argc-1; i>=0;i--){
     int len = strlen(parsed_command[i]) + 1;
+    totlen += len;
     *esp -= len;
     strlcpy(*esp, parsed_command[i], len);
-    
-    if(len % 4) {
-      len = len % 4;
-      *esp -= len;
-      strlcpy(*esp,zeros, len);
-    }
     argv[i] = (uint32_t)*esp;
   }
   argv[argc] = (uint32_t)0;
+  
+  printf("totlen : %d\n", totlen);
 
+  //word align;
+  if(totlen % 4 != 0) {
+    *esp -= (4 - totlen % 4);
+  }
+
+  //push argv[0], address.
   for(int i = argc; i >= 0; i--){
     *esp -= 4;
     **(uint32_t**)esp = argv[i];
-  
-    //argv
-    if(i == 0){
-      *esp -= 4;
-      **(uint32_t**)esp = *esp + 4;  
-    }
   }
 
+  //argv 
+  *esp -= 4;
+  **(uint32_t**)esp = *esp + 4;  
+   
   //argc
-  *esp -=4;
+  *esp -= 4;
   **(uint32_t**)esp = argc;
 
   //fake return address
@@ -536,5 +547,5 @@ static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]){
   **(uint32_t**)esp = 0;
 
   //debug
-  //hex_dump(*esp, *esp, 100, 1);
+  // hex_dump(*esp, *esp, 100, 1);
 }
