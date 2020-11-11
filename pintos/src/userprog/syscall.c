@@ -22,11 +22,12 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  printf("syscall : %d\n", *(uint32_t *)(f->esp));
-  hex_dump(f->esp, f->esp, 100, 1); 
+  // printf("syscall : %d\n", *(uint32_t *)(f->esp));
+  // hex_dump(f->esp, f->esp, 100, 1); 
   uint32_t *args = (uint32_t *)f->esp;
+  chk_address(args);
   
-  //system call number 
+  printf("\n\n esp : %p\n\n", args[0]);
   //arg는 항상 뒤에서부터 쌓는다 user/syscall.c 참조
   switch(*((uint32_t*)f->esp)) {
     case SYS_HALT :
@@ -53,6 +54,10 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_FILESIZE :
       break;
     case SYS_READ :
+      chk_address(args+4);
+      chk_address(args+8);
+      chk_address(args+12);
+      read((int)args[1], (void *)args[2], (unsigned)args[3]);
       break;
     case SYS_WRITE :
       chk_address(args + 4);
@@ -68,7 +73,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
   }
   
-  thread_exit ();
+  //thread_exit ();
 }
 
 void
@@ -78,13 +83,18 @@ halt(void){
 
 void
 exit(int status){
-  printf("%s: exit(%d)\n", thread_name(), status);
+  //thread_name => cmd_line
+  char *cmd, *ptr1; 
+  cmd = strtok_r(thread_name()," ", &ptr1);
+  printf("%s: exit(%d)\n", cmd, status);
+  
+  //set status
   thread_exit();
 }
 
 pid_t
 exec(const char *cmd_line){
-  return process_execute(cmd_line);
+  return process_execute(cmd_line); 
 }
 
 int
@@ -96,19 +106,30 @@ bool create(const char* file, unsigned initial_size);
 bool remove(const char* file);
 int open(const char *file);
 int filesize(int fd);
-int read(int fd, void *buffer, unsigned size);
+
+int
+read(int fd, void *buffer, unsigned size){  
+  //stdin
+  int r_size =0;
+  if (fd == 0) {
+    while( input_getc() != '\0' && r_size++ < size) {
+      r_size++;
+    } 
+  }
+  return r_size; 
+}
 
 //return actual written bytes
 int
 write(int fd, const void *buffer, unsigned size){
   //console write
-  printf("size : %zd\n", size);
   if(fd == 1){
     putbuf(buffer, size);
     return size;
   }
   return -1;
 }
+
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);

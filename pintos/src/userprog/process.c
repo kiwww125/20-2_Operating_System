@@ -34,20 +34,22 @@ process_execute (const char *file_name)
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
+
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
-  cmd_name = strtok_r(file_name, " ", &ptr1);
+  // cmd_name = strtok_r(file_name, " ", &ptr1);
 
-  //should check if it exist, if not return -1 to tell
-  if(filesys_open(cmd_name) == -1) 
-    return -1;
+  // //should check if it exist, if not return -1 to tell
+  // if(filesys_open(cmd_name) == -1) 
+  //   return -1;
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (cmd_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  
   return tid;
 }
 
@@ -202,8 +204,8 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-#define PARSE_SIZE 10
-#define CMD_SIZE 128
+#define PARSE_SIZE 25
+#define CMD_SIZE 40
 
 static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
@@ -229,8 +231,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
   int i;
 
   char parsed_command[PARSE_SIZE][CMD_SIZE];
-  for(int r = 0; r < PARSE_SIZE; r++)
-  memset(parsed_command[r], 0, sizeof(char) * CMD_SIZE);
+  for(int r = 0; r < PARSE_SIZE; r++){
+    memset(parsed_command[r], 0, sizeof(char) * CMD_SIZE);
+  }
+  
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -502,8 +506,6 @@ static void parse_file_name(char *file_name, char parsed_command[][CMD_SIZE]){
   }
 }
 
-
-
 static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]){
   int argc = 0;
   uint32_t argv[PARSE_SIZE];
@@ -521,8 +523,6 @@ static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]){
   }
   argv[argc] = (uint32_t)0;
   
-  printf("totlen : %d\n", totlen);
-
   //word align;
   if(totlen % 4 != 0) {
     *esp -= (4 - totlen % 4);
@@ -547,5 +547,5 @@ static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]){
   **(uint32_t**)esp = 0;
 
   //debug
-  // hex_dump(*esp, *esp, 100, 1);
+  //hex_dump(*esp, *esp, 100, 1);
 }
