@@ -39,11 +39,11 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
-  // cmd_name = strtok_r(file_name, " ", &ptr1);
-
-  // //should check if it exist, if not return -1 to tell
-  // if(filesys_open(cmd_name) == -1) 
-  //   return -1;
+  cmd_name = strtok_r(file_name, " ", &ptr1);
+  
+  //should check if it exist, if not return -1 to tell
+  if(filesys_open(cmd_name) == NULL) 
+    return -1;
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -71,7 +71,7 @@ start_process (void *file_name_)
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
-    thread_exit ();
+    thread_exit();
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -95,9 +95,24 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  int j =0;
-  for(int i =0; i<1000000000;i++) j++;
-  return -1;
+  struct thread* t;
+  struct list *childs = &(thread_current()->child_threads);
+  int exit_status;
+
+  for (struct list_elem *trav = list_begin(childs); trav != list_end(childs); trav = list_next(trav)) {
+    t = list_entry(trav, struct thread, child_elem);
+    
+    //wait until child_tid exit;
+    if (child_tid == t->tid) {
+      sema_down(&(t->child_lock));
+      exit_status = t->exit_status;
+      list_remove(&(t->child_elem));
+      sema_up(&(t->rem_lock));
+      return exit_status;
+    }   
+  }
+
+  return -1; 
 }
 
 /* Free the current process's resources. */
@@ -123,6 +138,9 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+    sema_up(&(cur->child_lock));
+    sema_down(&(cur->rem_lock));
 }
 
 /* Sets up the CPU for running user code in the current
@@ -244,7 +262,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Open executable file. */
   //TODO : parse file name
   parse_file_name(file_name, parsed_command);
-
+  
   file = filesys_open (parsed_command[0]);
   if (file == NULL) 
     {
