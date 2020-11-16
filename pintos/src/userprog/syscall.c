@@ -23,7 +23,6 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   // printf("syscall : %d\n", *(uint32_t *)(f->esp));
-  // hex_dump(f->esp, f->esp, 100, 1); 
   uint32_t *args = (uint32_t *)f->esp;
   chk_address(args);
   //printf("\n\n esp : %p\n\n", args[0]);
@@ -71,7 +70,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_CLOSE :
       break;
   }
-  
+  //hex_dump(f->esp, f->esp, 100, 1); 
 }
 
 void
@@ -84,7 +83,7 @@ exit(int status){
   //thread_name => cmd_line
   char *cmd, *ptr1; 
   cmd = strtok_r(thread_name()," ", &ptr1);
-  // printf("%s: exit(%d)\n", thread_name(), status);
+  //printf("%s: exit(%d)\n", thread_name(), status);
   printf("%s: exit(%d)\n", cmd, status);
 
   //set status

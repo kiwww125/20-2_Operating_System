@@ -30,23 +30,26 @@ process_execute (const char *file_name)
 {
   char *fn_copy, *cmd_name, *ptr1;
   tid_t tid;
-
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
-
   if (fn_copy == NULL)
     return TID_ERROR;
+
   strlcpy (fn_copy, file_name, PGSIZE);
 
-  cmd_name = strtok_r(file_name, " ", &ptr1);
-  
-  //should check if it exist, if not return -1 to tell
-  if(filesys_open(cmd_name) == NULL) 
-    return -1;
+  int i = 0;
+  while(file_name[i] != '\0' && file_name[i] != ' ') i++;
+  cmd_name = malloc(sizeof(file_name));
+  strlcpy(cmd_name, file_name, i + 1);
 
+  //should check if it exist, if not return -1 to tell
+  if(filesys_open(cmd_name) == NULL) {
+    return -1;
+  }
+  
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (cmd_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   
@@ -67,11 +70,10 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
-
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
-    thread_exit();
+    exit(-1);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -231,8 +233,8 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable);
 
-static void parse_file_name(char *file_name, char parsed_command[][CMD_SIZE]);
-static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]);
+//static void parse_file_name(const char *file_name, char parsed_command[][CMD_SIZE]);
+static void construct_stack(void **esp, const char* file_name);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -248,11 +250,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
   bool success = false;
   int i;
 
-  char parsed_command[PARSE_SIZE][CMD_SIZE];
-  for(int r = 0; r < PARSE_SIZE; r++){
-    memset(parsed_command[r], 0, sizeof(char) * CMD_SIZE);
-  }
-  
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -261,9 +258,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Open executable file. */
   //TODO : parse file name
-  parse_file_name(file_name, parsed_command);
-  
-  file = filesys_open (parsed_command[0]);
+
+  char *fcpy, *cmd, *ptr1;
+  fcpy = palloc_get_page (0);
+  strlcpy(fcpy, file_name,  PGSIZE);
+  cmd = strtok_r(fcpy, " ", &ptr1);
+
+  file = filesys_open (cmd);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -346,16 +347,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
 
   //TODO : construct stack
-
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
-  construct_stack(esp, parsed_command);
-  
+  construct_stack(esp, file_name);
   success = true;
 
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  palloc_free_page (fcpy); 
 
   return success;
 }
@@ -509,34 +509,30 @@ install_page (void *upage, void *kpage, bool writable)
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
 
-//file_name = echo x;
-static void parse_file_name(char *file_name, char parsed_command[][CMD_SIZE]){
-  const char delim[] = " ";
-  char *str1, *token, *ptr1;
-  int j;
-
-  for (j = 0, str1 = file_name; ; j++, str1 = NULL) {
-    token = strtok_r(str1, delim, &ptr1);
-    if (token == NULL)
-      break;
-    strlcpy(parsed_command[j], token, strlen(token) + 1);
-    //printf("%d : %s\n", j ,token);
-  }
-}
-
-static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]){
+static void construct_stack(void **esp, const char *file_name){
   int argc = 0;
+  char *str1, *token, *ptr1;
+  char **parsed_arguments;
   uint32_t argv[PARSE_SIZE];
-  
-  while(parsed_command[argc][0] != 0) argc++;
+
+  parsed_arguments = (char**)malloc(sizeof(char*) * PARSE_SIZE);
+
+  for (str1 = file_name; ; argc++, str1 = NULL) {
+    token = strtok_r(str1, " ", &ptr1);
+    if (token == NULL){
+      break;
+    }
+    parsed_arguments[argc] = (char*)malloc(sizeof(char) * strlen(token) + 1);
+    strlcpy(parsed_arguments[argc], token, strlen(token) + 1);
+  }
 
   //argv[argc-1][...] ~ argv[0][...]
   int totlen =0;
   for(int i = argc-1; i>=0;i--){
-    int len = strlen(parsed_command[i]) + 1;
+    int len = strlen(parsed_arguments[i]) + 1;
     totlen += len;
     *esp -= len;
-    strlcpy(*esp, parsed_command[i], len);
+    strlcpy(*esp, parsed_arguments[i], len);
     argv[i] = (uint32_t)*esp;
   }
   argv[argc] = (uint32_t)0;
@@ -565,5 +561,7 @@ static void construct_stack(void **esp, char parsed_command[][CMD_SIZE]){
   **(uint32_t**)esp = 0;
 
   //debug
-  //hex_dump(*esp, *esp, 100, 1);
+  for(int i =0 ; i< argc;i++) 
+    free(parsed_arguments[i]);
+  free(parsed_arguments);
 }
