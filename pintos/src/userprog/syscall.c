@@ -7,6 +7,7 @@
 #include "threads/vaddr.h"
 #include "filesys/inode.h"
 #include "filesys/file.h"
+#include "threads/synch.h"
 
 static void syscall_handler (struct intr_frame *);
 static void chk_address(void * address){
@@ -18,6 +19,7 @@ static void chk_address(void * address){
 void
 syscall_init (void) 
 {
+  //init 1
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -100,7 +102,7 @@ void
 exit(int status){
   //thread_name => cmd_line
   char *cmd, *ptr1; 
-  cmd = strtok_r(thread_name()," ", &ptr1);
+  cmd = strtok_r(thread_name(), " ", &ptr1);
   //printf("%s: exit(%d)\n", thread_name(), status);
   printf("%s: exit(%d)\n", cmd, status);
 
@@ -142,7 +144,7 @@ open(const char *file){
   int fd = 3; 
   struct file *f = filesys_open(file);
   struct thread* t = thread_current();
-
+  
   if(f == NULL) {
     fd = -1;
   }
@@ -173,9 +175,9 @@ filesize(int fd){
 
 int
 read(int fd, void *buffer, unsigned size){  
-  //stdin
   chk_address(buffer);
   int r_size =0, ret = -1;
+  //stdin
   if (fd == 0) {
     while( input_getc() != '\0' && r_size++ < size) {
       r_size++;
@@ -187,7 +189,6 @@ read(int fd, void *buffer, unsigned size){
     if(f == NULL) return ret;
     r_size = file_read(f, buffer, size);
   }
-
   return r_size;
 }
 
@@ -195,6 +196,7 @@ read(int fd, void *buffer, unsigned size){
 int
 write(int fd, const void *buffer, unsigned size){
   //console write
+
   if(fd == 1){
     putbuf(buffer, size);
     return size;
@@ -242,5 +244,6 @@ close(int fd){
   //can close
   else{
     file_close(f);
+    t->file_descriptor[fd] = NULL;
   }
 }
