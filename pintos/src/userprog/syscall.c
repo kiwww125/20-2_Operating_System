@@ -5,6 +5,8 @@
 #include "threads/thread.h"
 #include "userprog/syscall.h"
 #include "threads/vaddr.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 
 static void syscall_handler (struct intr_frame *);
 static void chk_address(void * address){
@@ -44,10 +46,17 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = wait((pid_t)args[1]);
       break;
     case SYS_CREATE :
+      chk_address(args+4);
+      chk_address(args+8);
+      f->eax = create((const char*)args[1], (unsigned)args[2]);
       break;
     case SYS_REMOVE :
+      chk_address(args+4);
+      f->eax = remove((const char*)args[1]);
       break;
     case SYS_OPEN :
+      chk_address(args+4);
+      f->eax = open((const char*)args[1]);
       break;
     case SYS_FILESIZE :
       break;
@@ -101,10 +110,47 @@ wait(pid_t pid){
   return process_wait(pid);
 }
 
-bool create(const char* file, unsigned initial_size);
-bool remove(const char* file);
-int open(const char *file);
-int filesize(int fd);
+bool 
+create(const char* file, unsigned initial_size){
+  //NULL exception
+  if(file == NULL) exit(-1);
+  return filesys_create(file, initial_size);
+}
+
+bool 
+remove(const char* file){
+  if(fild == NULL) exit(-1);
+  return filesys_remove(file);
+}
+
+//return file_descriptor id
+int 
+open(const char *file){
+  //0, 1, 2 is reserved;
+  int fd = 3; 
+  struct file * f = filesys_open(file);
+  struct thread* t = thread_current();
+  if(f == NULL) {
+    fd = -1;
+  }
+  else{
+    for(;fd < 128; fd++){
+      if(t->file_descriptor[fd] == NULL) {
+        t->file_descriptor[fd] = f;
+      }
+    }
+  }
+
+  return fd;
+}
+
+int 
+filesize(int fd){
+  struct thread *t = thread_current();
+  struct file* f = t->file_descriptor[fd];
+  if(f == NULL) return -1;
+  return file_length(f);
+}
 
 int
 read(int fd, void *buffer, unsigned size){  

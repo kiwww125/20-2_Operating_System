@@ -474,6 +474,11 @@ init_thread (struct thread *t, const char *name, int priority)
 
   list_init(&(t->child_threads));
   list_push_back(&(running_thread()->child_threads), &(t->child_elem));
+  
+  //child process doesnt inherit parents fd -> so init NULL
+  for(int i = 0; i < 128;i++) {
+    t-> file_descriptor[i] = NULL;
+  }
   //thread_unblock(t);
 }
 
