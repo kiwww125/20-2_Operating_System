@@ -5,8 +5,8 @@
 #include "threads/thread.h"
 #include "userprog/syscall.h"
 #include "threads/vaddr.h"
+#include "filesys/inode.h"
 #include "filesys/file.h"
-#include "filesys/filesys.h"
 
 static void syscall_handler (struct intr_frame *);
 static void chk_address(void * address){
@@ -59,6 +59,8 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = open((const char*)args[1]);
       break;
     case SYS_FILESIZE :
+      chk_address(args+4);
+      f->eax = filesize((int)args[1]);
       break;
     case SYS_READ :
       chk_address(args+4);
@@ -73,10 +75,17 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = write((int)args[1], (void *)args[2], (unsigned)args[3]);
       break;
     case SYS_SEEK :
+      chk_address(args+4);
+      chk_address(args+8);
+      seek((int)args[1], (unsigned)args[2]);
       break;
     case SYS_TELL :
+      chk_address((int)args[1]);
+      tell((int)args[1]);
       break;
     case SYS_CLOSE :
+      chk_address(args+4);
+      close((int)args[1]);
       break;
   }
   //hex_dump(f->esp, f->esp, 100, 1); 
@@ -119,7 +128,7 @@ create(const char* file, unsigned initial_size){
 
 bool 
 remove(const char* file){
-  if(fild == NULL) exit(-1);
+  if(file == NULL) exit(-1);
   return filesys_remove(file);
 }
 
@@ -127,20 +136,28 @@ remove(const char* file){
 int 
 open(const char *file){
   //0, 1, 2 is reserved;
+  if(file == NULL) 
+    return -1;
+
   int fd = 3; 
-  struct file * f = filesys_open(file);
+  struct file *f = filesys_open(file);
   struct thread* t = thread_current();
+
   if(f == NULL) {
     fd = -1;
   }
-  else{
+  else {
     for(;fd < 128; fd++){
       if(t->file_descriptor[fd] == NULL) {
+        //should deny write from other process if it is once opened
+        if(strcmp(file, t->name) == 0) {
+          file_deny_write(f);
+        }
         t->file_descriptor[fd] = f;
+        break;
       }
     }
   }
-
   return fd;
 }
 
@@ -148,22 +165,30 @@ int
 filesize(int fd){
   struct thread *t = thread_current();
   struct file* f = t->file_descriptor[fd];
-  if(f == NULL) return -1;
+  if(f == NULL) 
+    return -1;
+
   return file_length(f);
 }
 
 int
 read(int fd, void *buffer, unsigned size){  
   //stdin
+  chk_address(buffer);
   int r_size =0, ret = -1;
   if (fd == 0) {
     while( input_getc() != '\0' && r_size++ < size) {
       r_size++;
     } 
   }
+  else if(fd >= 3){
+    struct thread *t = thread_current();
+    struct file* f = t->file_descriptor[fd];
+    if(f == NULL) return ret;
+    r_size = file_read(f, buffer, size);
+  }
 
-  if(r_size) ret = r_size;
-  return ret; 
+  return r_size;
 }
 
 //return actual written bytes
@@ -174,9 +199,48 @@ write(int fd, const void *buffer, unsigned size){
     putbuf(buffer, size);
     return size;
   }
+  else if(fd >= 3){
+    struct thread *t = thread_current();
+    struct file* f = t->file_descriptor[fd];
+    if(f == NULL) return -1;
+    return file_write(f, buffer, size);
+  }
+
   return -1;
 }
 
-void seek(int fd, unsigned position);
-unsigned tell(int fd);
-void close(int fd);
+void 
+seek(int fd, unsigned position){
+  struct thread *t = thread_current();
+  struct file* f = t->file_descriptor[fd];
+  if(f == NULL) {
+    exit(-1);
+  }
+  file_seek(f, (off_t)position);
+}
+
+unsigned 
+tell(int fd){
+  struct thread *t = thread_current();
+  struct file* f = t->file_descriptor[fd];
+  
+  if(f == NULL) {
+    exit(-1);
+  }
+
+  return (unsigned)file_tell(f);
+}
+
+void 
+close(int fd){
+  //0, 1, 2 is reserved;
+  struct thread* t = thread_current();
+  struct file *f = t-> file_descriptor[fd];
+  if(f == NULL) {
+    exit(-1);
+  }
+  //can close
+  else{
+    file_close(f);
+  }
+}

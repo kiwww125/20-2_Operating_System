@@ -5,8 +5,8 @@
 #include <list.h>
 #include <stdint.h>
 #include "synch.h"
-#include "sysfile/file.h"
-#include "sysfile/filesys.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 
 /* States in a thread's life cycle. */
 enum thread_status

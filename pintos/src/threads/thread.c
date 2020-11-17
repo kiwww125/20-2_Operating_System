@@ -477,7 +477,7 @@ init_thread (struct thread *t, const char *name, int priority)
   
   //child process doesnt inherit parents fd -> so init NULL
   for(int i = 0; i < 128;i++) {
-    t-> file_descriptor[i] = NULL;
+    t->file_descriptor[i] = NULL;
   }
   //thread_unblock(t);
 }
