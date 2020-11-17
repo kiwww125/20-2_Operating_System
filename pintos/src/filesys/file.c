@@ -128,7 +128,6 @@ file_allow_write (struct file *file)
   ASSERT (file != NULL);
   if (file->deny_write) 
     {
-      printf("%d\n", file->inode->data.length);
       file->deny_write = false;
       inode_allow_write (file->inode);
     }
