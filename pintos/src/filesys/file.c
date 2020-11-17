@@ -41,8 +41,7 @@ file_close (struct file *file)
     {
       file_allow_write (file);
       inode_close (file->inode);
-      free (file); 
-      file = NULL;
+      free(file);
     }
 }
 

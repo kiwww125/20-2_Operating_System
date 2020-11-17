@@ -16,10 +16,11 @@ static void chk_address(void * address){
   }
 }
 
+struct lock file_lock;
 void
 syscall_init (void) 
 {
-  //init 1
+  lock_init(&file_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -58,7 +59,9 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     case SYS_OPEN :
       chk_address(args+4);
+      lock_acquire(&file_lock);
       f->eax = open((const char*)args[1]);
+      lock_release(&file_lock);
       break;
     case SYS_FILESIZE :
       chk_address(args+4);
@@ -82,7 +85,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       seek((int)args[1], (unsigned)args[2]);
       break;
     case SYS_TELL :
-      chk_address((int)args[1]);
+      chk_address(args+4);
       tell((int)args[1]);
       break;
     case SYS_CLOSE :
@@ -123,7 +126,6 @@ wait(pid_t pid){
 
 bool 
 create(const char* file, unsigned initial_size){
-  //NULL exception
   if(file == NULL) exit(-1);
   return filesys_create(file, initial_size);
 }
@@ -151,7 +153,8 @@ open(const char *file){
   else {
     for(;fd < 128; fd++){
       if(t->file_descriptor[fd] == NULL) {
-        //should deny write from other process if it is once opened
+        //should deny write from other process 
+        //if it is once opened
         if(strcmp(file, t->name) == 0) {
           file_deny_write(f);
         }
@@ -160,6 +163,7 @@ open(const char *file){
       }
     }
   }
+
   return fd;
 }
 
@@ -176,9 +180,11 @@ filesize(int fd){
 int
 read(int fd, void *buffer, unsigned size){  
   chk_address(buffer);
-  int r_size =0, ret = -1;
-  //stdin
+  int r_size = -1;
+  
+  lock_acquire(&file_lock);
   if (fd == 0) {
+    r_size =0;
     while( input_getc() != '\0' && r_size++ < size) {
       r_size++;
     } 
@@ -186,29 +192,35 @@ read(int fd, void *buffer, unsigned size){
   else if(fd >= 3){
     struct thread *t = thread_current();
     struct file* f = t->file_descriptor[fd];
-    if(f == NULL) return ret;
-    r_size = file_read(f, buffer, size);
+    if(f != NULL) {
+      r_size = file_read(f, buffer, size);
+    }
   }
+
+  lock_release(&file_lock);
   return r_size;
 }
 
 //return actual written bytes
 int
 write(int fd, const void *buffer, unsigned size){
-  //console write
 
+  int ret = -1;
+  
+  lock_acquire(&file_lock);
   if(fd == 1){
     putbuf(buffer, size);
-    return size;
+    ret = size;
   }
   else if(fd >= 3){
     struct thread *t = thread_current();
     struct file* f = t->file_descriptor[fd];
-    if(f == NULL) return -1;
-    return file_write(f, buffer, size);
+    if(f != NULL){ 
+      ret = file_write(f, buffer, size);
+    }
   }
-
-  return -1;
+  lock_release(&file_lock);
+  return ret;
 }
 
 void 
@@ -242,7 +254,7 @@ close(int fd){
     exit(-1);
   }
   //can close
-  else{
+  else {
     file_close(f);
     t->file_descriptor[fd] = NULL;
   }
